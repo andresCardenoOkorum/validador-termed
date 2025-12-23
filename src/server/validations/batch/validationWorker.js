@@ -10,22 +10,13 @@ import { Worker } from 'bullmq'
 import Redis from 'ioredis'
 import { TermedInstance } from '@okorum/termed'
 import { ObjectId } from 'mongodb'
-import { loadConfig, loadRules, runPipeline } from '../utils/orchestrator.js'
-import normalize from '../utils/normalize.js'
-import getValidationResultsCollection from '../../../db/Collections/validationResults.js'
-
-const {
-  REDIS_HOST = 'localhost',
-  REDIS_PORT = 6379,
-  BATCH_SIZE = 1000
-} = process.env
+import { loadConfig, loadRules, executeValidation } from '../../../orchestrators/validationOrchestrator.js'
+import { normalize } from '../../../shared/utils.js'
+import { REDIS_CONFIG, BATCH_SIZE, DEFAULT_TARGET_TYPE } from '../../../shared/constants.js'
+import validationResultsRepository from '../../../persistence/validationResults.repository.js'
 
 // Crear conexión Redis para BullMQ
-const redisConnection = new Redis({
-  host: REDIS_HOST,
-  port: parseInt(REDIS_PORT, 10),
-  maxRetriesPerRequest: null
-})
+const redisConnection = new Redis(REDIS_CONFIG)
 
 /**
  * Procesa un job de validación batch
@@ -57,10 +48,9 @@ const processValidationJob = async (job) => {
     // Inicializar progreso
     await job.updateProgress({ processed: 0, total })
 
-    // Determinar contexto y targetType (por ahora usar valores por defecto)
-    // TODO: Esto debería venir de la configuración del catálogo
+    // Determinar contexto y targetType
     const context = `catalogo_${catalogoId}`
-    const targetType = 'medicamento' // Por defecto, debería ser configurable
+    const targetType = DEFAULT_TARGET_TYPE
 
     // Cargar configuración de validaciones
     const config = await loadConfig(context, targetType, organizationId)
@@ -74,17 +64,13 @@ const processValidationJob = async (job) => {
       .map(v => v.validationId)
     const rules = await loadRules(validationIds)
 
-    // Obtener colección de resultados
-    const resultsCollection = await getValidationResultsCollection('validationResults')
-
     // Obtener colección MST_CUM para consultas
     const MST_CUM = await TermedInstance.getDynamicCollectionByName(organizationId, 'MST_CUM')
     const cumRawCollection = await MST_CUM.rawCollection()
 
     // Procesar en batches
     let processed = 0
-    let skip = 0
-    const batchSize = parseInt(BATCH_SIZE, 10)
+    const batchSize = BATCH_SIZE
 
     // Crear cursor para paginar
     const cursor = rawCollection.find(query || {})
@@ -104,8 +90,7 @@ const processValidationJob = async (job) => {
           config,
           rules,
           cumRawCollection,
-          bulkOps,
-          resultsCollection
+          bulkOps
         })
 
         processed += batch.length
@@ -124,15 +109,14 @@ const processValidationJob = async (job) => {
         config,
         rules,
         cumRawCollection,
-        bulkOps,
-        resultsCollection
+        bulkOps
       })
       processed += batch.length
     }
 
     // Ejecutar bulkWrite final
     if (bulkOps.length > 0) {
-      await resultsCollection.bulkWrite(bulkOps, { ordered: false })
+      await validationResultsRepository.bulkWrite(bulkOps)
       console.log(`BulkWrite completed: ${bulkOps.length} operations`)
     }
 
@@ -158,8 +142,7 @@ const processBatch = async (batch, options) => {
     config,
     rules,
     cumRawCollection,
-    bulkOps,
-    resultsCollection
+    bulkOps
   } = options
 
   // Normalizar códigos y obtener documentos CUM
@@ -193,7 +176,7 @@ const processBatch = async (batch, options) => {
       }
 
       // Ejecutar pipeline de validaciones
-      const result = runPipeline(item, config, rules, cumDoc)
+      const result = executeValidation(item, config, rules, cumDoc)
 
       // Preparar operación de upsert
       const now = new Date()

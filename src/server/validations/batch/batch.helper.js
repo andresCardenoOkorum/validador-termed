@@ -7,9 +7,10 @@
  */
 
 import { TermedInstance } from '@okorum/termed'
-import { loadConfig, loadRules, runPipeline } from '../utils/orchestrator.js'
-import normalize from '../utils/normalize.js'
-import getValidationResultsCollection from '../../../db/Collections/validationResults.js'
+import { loadConfig, loadRules, executeValidation } from '../../../orchestrators/validationOrchestrator.js'
+import { normalize } from '../../../shared/utils.js'
+import validationResultsRepository from '../../../persistence/validationResults.repository.js'
+import { DEFAULT_TARGET_TYPE } from '../../../shared/constants.js'
 import { ObjectId } from 'mongodb'
 
 /**
@@ -25,7 +26,7 @@ const processBatchDirect = async ({ catalogoId, items, query, organizationId }) 
   try {
     // Determinar contexto y targetType
     const context = `catalogo_${catalogoId}`
-    const targetType = 'medicamento' // Por defecto
+    const targetType = DEFAULT_TARGET_TYPE
 
     // Cargar configuración de validaciones
     const config = await loadConfig(context, targetType, organizationId)
@@ -66,7 +67,6 @@ const processBatchDirect = async ({ catalogoId, items, query, organizationId }) 
 
     // Procesar items
     const results = []
-    const resultsCollection = await getValidationResultsCollection('validationResults')
     const bulkOps = []
     const now = new Date()
 
@@ -78,7 +78,7 @@ const processBatchDirect = async ({ catalogoId, items, query, organizationId }) 
           cumDoc = cumDocsMap.get(codigoNorm) || null
         }
 
-        const result = runPipeline(item, config, rules, cumDoc)
+        const result = executeValidation(item, config, rules, cumDoc)
         results.push({
           itemId: item._id || item.id,
           ...result
@@ -123,7 +123,7 @@ const processBatchDirect = async ({ catalogoId, items, query, organizationId }) 
 
     // Ejecutar bulkWrite
     if (bulkOps.length > 0) {
-      await resultsCollection.bulkWrite(bulkOps, { ordered: false })
+      await validationResultsRepository.bulkWrite(bulkOps)
     }
 
     return {

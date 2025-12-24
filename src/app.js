@@ -9,7 +9,6 @@
 import dotenv from 'dotenv'
 import dbConnection from './db/MongoConnection.js'
 import { startServer } from './server.js'
-import createValidationWorker from './server/validations/batch/validationWorker.js'
 
 // Cargar variables de entorno
 dotenv.config()
@@ -22,28 +21,20 @@ const startApp = async () => {
     await dbConnection.connect()
     console.log('MongoDB connected successfully')
 
-    // Inicializar Worker de BullMQ
-    console.log('Initializing BullMQ worker...')
-    const worker = createValidationWorker()
-    console.log('BullMQ worker initialized')
-
     // Iniciar servidor
     await startServer()
 
     // Manejo de cierre graceful
-    process.on('SIGTERM', async () => {
-      console.log('SIGTERM received, closing connections...')
-      await worker.close()
+    const shutdown = async (signal) => {
+      console.log(`${signal} received, shutting down...`)
       await dbConnection.close()
-      process.exit(0)
-    })
+      server.close(() => {
+        process.exit(0)
+      })
+    }
 
-    process.on('SIGINT', async () => {
-      console.log('SIGINT received, closing connections...')
-      await worker.close()
-      await dbConnection.close()
-      process.exit(0)
-    })
+    process.on('SIGTERM', shutdown)
+    process.on('SIGINT', shutdown)
   } catch (error) {
     console.error('Error starting application:', error)
     process.exit(1)

@@ -12,7 +12,7 @@ import { TermedInstance } from '@okorum/termed'
 import { loadConfig, loadRules, executeValidation } from '../../orchestrators/validationOrchestrator.js'
 import { normalize } from '../../shared/utils.js'
 import { REDIS_CONFIG, DEFAULT_TARGET_TYPE } from '../../shared/constants.js'
-import getIOLogsCollection from '../../../db/Collections/ioLogs.js'
+import getIOLogsCollection from '../../db/Collections/ioLogs.js'
 
 // Crear conexión Redis para BullMQ
 const redisConnection = new Redis(REDIS_CONFIG)
@@ -196,12 +196,6 @@ const controller = async (req, res, next) => {
         query: req.body.query,
         requestId: req.body.requestId,
         organizationId
-      })
-    }
-    // GET /catalogo/:jobId - Estado del job
-    else if (method === 'GET' && path.includes('/catalogo/')) {
-      response = await getJobStatus({
-        jobId: req.params.jobId
       })
     }
     // POST / - Validación single

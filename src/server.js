@@ -41,7 +41,7 @@ app.use(
   engineRouter
 )
 app.use(
-  '/api/orchestrators/',
+  '/api/validaciones-catalogos/',
   authzMiddleware,
   ipMiddleware,
   orchestratorsRouter
